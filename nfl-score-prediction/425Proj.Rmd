@@ -1,0 +1,118 @@
+library(readxl)
+dat<-exported_data
+remove_cols <- grep("td|touch|fg|field|average|avg",
+                    names(dat),
+                    ignore.case = TRUE,
+                    value = TRUE)
+model_df <- dat %>%
+  select(-all_of(remove_cols)) %>%
+  select(points, everything())   # ensure points is the target
+model_df$opponent<-factor(model_df$opponent)
+model_df$team<-factor(model_df$team)
+model_df$home_away<-factor(model_df$home_away)
+library(dplyr)
+model_df <- model_df %>% select(-record_off,-game_id_opp_def,-season_opp_def,-season_type_opp_def,-record_opp_def)
+model_df <- model_df %>% select(-game_id_off,-season_off,-season_type_off)
+model_df <- model_df %>% select(-total_off_points_off,-extra_point_off,-kickoff_off)
+model_df <- model_df %>% select(-total_off_points_opp_def,-extra_point_opp_def,-kickoff_opp_def)
+data<-model_df[model_df$week<=12,]
+dp<-model_df[model_df$week>12,]
+model <- lm(points ~ ., data = data)
+summary(model)
+dp$predicted_points <- predict(model, newdata = dp)
+sum(is.na(dp$points))
+sum(is.na(dp$predicted_points))
+dp <- dp %>% filter(!is.na(points), !is.na(predicted_points))]
+mae <- mean(abs(dp$points - dp$predicted_points))
+mae
+summary(model)
+step_model  <- step(model, direction = "both", trace = FALSE)
+summary(step_model)
+library(ggplot2)
+ggplot(dp, aes(x = predicted_points, y = points)) +
+  geom_point(color = "blue", size = 2, alpha = 0.7) +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  labs(
+    title = "Actual vs Predicted Points",
+    x = "Predicted Points",
+    y = "Actual Points"
+  ) +
+  theme_minimal()
+library(glmnet)
+x <- model.matrix(points ~ ., data = data)[,-1]
+points <- data$points
+set.seed(123)
+lasso_cv <- cv.glmnet(x, points, alpha = 1)   # alpha = 1 → LASSO
+best_lambda <- lasso_cv$lambda.min
+best_lambda
+lasso_model <- glmnet(x, points, alpha = 1, lambda = best_lambda)
+coef(lasso_model)
+lasso_pred <- predict(lasso_model, newx = x)
+coef_lasso <- coef(lasso_model)
+nonzero_indices <- which(coef_lasso != 0)
+vars <- rownames(coef_lasso)[nonzero_indices]
+vars <- rownames(coef_lasso)[which(coef_lasso != 0)]
+vars <- vars[vars != "(Intercept)"]
+vars_fixed <- vars
+vars_fixed[grep("opponent", vars_fixed)] <- "opponent"
+vars_fixed<-vars_fixed
+vars_fixed[grep("team", vars_fixed)] <- "team"
+vars_fixed <- unique(vars_fixed)
+final_formula <- as.formula(
+  paste("points ~", paste(vars_fixed, collapse = " + "))
+)
+final_formula
+final_model <- lm(final_formula, data = data)
+summary(final_model)
+plot(final_model, which = 1)
+plot(final_model, which = 2)
+plot(final_model, which = 3)
+plot(final_model, which = 4)
+plot(final_model, which = 5)
+resid_vec <- residuals(final_model)
+shapiro.test(resid_vec)
+library(lmtest)
+bptest(final_model)
+dwtest(final_model)
+library(car)
+vif(final_model)
+outlierTest(final_model)
+influencePlot(final_model,
+              id.method = "identify",
+              main = "Influence Plot",
+              sub  = "Circle size ∝ Cook's distance")
+resettest(final_model)
+summary(final_model)
+AIC(final_model)
+BIC(final_model)
+coefs <- coef(final_model)
+which(is.na(coefs))
+coefs[is.na(coefs)]
+bad_terms <- names(coefs)[is.na(coefs)]
+bad_terms <- bad_terms[bad_terms != "(Intercept)"]
+update_str <- paste(". ~ . -", paste(bad_terms, collapse = " - "))
+final_model_clean <- update(final_model, update_str)
+summary(final_model_clean)
+vif(final_model_clean)
+plot(final_model_clean, which = 1)  
+plot(final_model_clean, which = 2)   
+plot(final_model_clean, which = 4)
+plot(final_model_clean, which = 5)
+resid_vec <- residuals(step_model)
+shapiro.test(resid_vec)
+library(lmtest)
+bptest(final_model_clean)
+library(car)
+vif(final_model_clean)
+library(lmtest)
+resettest(final_model_clean)
+dp$predicted_points <- predict(final_model_clean, newdata = dp)
+mae <- mean(abs(dp$points - dp$predicted_points))
+mae
+summary(final_model_clean)
+abs_errors <- abs(dp$points - dp$predicted_points)
+max_error <- max(abs_errors)
+max_error
+which_max <- which.max(abs_errors)
+which_max
+
